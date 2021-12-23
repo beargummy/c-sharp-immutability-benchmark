@@ -1,10 +1,13 @@
+using System.Diagnostics.Tracing;
 using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Diagnosers;
+using BenchmarkDotNet.Environments;
+using BenchmarkDotNet.Jobs;
+using Microsoft.Diagnostics.NETCore.Client;
+using Microsoft.Diagnostics.Tracing.Parsers;
 
-[HardwareCounters(
-    HardwareCounter.BranchMispredictions,
-    HardwareCounter.BranchInstructions)]
-[DisassemblyDiagnoser(printSource: true, printInstructionAddresses: true, maxDepth: 5, exportCombinedDisassemblyReport: true)]
+[EventPipeProfiler(EventPipeProfile.Jit)]
 public class StructBenchmark
 {
     public struct StructProperty
@@ -17,7 +20,7 @@ public class StructBenchmark
         public int A;
     }
 
-    [Params(100,1000,10000)]
+    [Params(1000)]
     public int size { get; set; }
 
     [Benchmark]
@@ -62,5 +65,26 @@ public class StructBenchmark
             s.A += s.A;
         }
         return s.A;
+    }
+
+    private class CustomConfig : ManualConfig
+    {
+        public CustomConfig()
+        {
+            AddJob(Job.ShortRun.WithRuntime(CoreRuntime.Core60));
+
+            var providers = new[]
+            {
+                new EventPipeProvider(ClrTraceEventParser.ProviderName, EventLevel.Verbose,
+                    (long) (ClrTraceEventParser.Keywords.Exception
+                    | ClrTraceEventParser.Keywords.GC
+                    | ClrTraceEventParser.Keywords.Jit
+                    | ClrTraceEventParser.Keywords.JitTracing // for the inlining events
+                    | ClrTraceEventParser.Keywords.Loader
+                    | ClrTraceEventParser.Keywords.NGen)),
+            };
+
+            AddDiagnoser(new EventPipeProfiler(providers: providers));
+        }
     }
 }
